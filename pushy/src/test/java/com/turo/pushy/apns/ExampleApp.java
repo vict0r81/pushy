@@ -23,14 +23,12 @@
 package com.turo.pushy.apns;
 
 import com.turo.pushy.apns.auth.ApnsSigningKey;
-import com.turo.pushy.apns.proxy.Socks5ProxyHandlerFactory;
 import com.turo.pushy.apns.util.ApnsPayloadBuilder;
 import com.turo.pushy.apns.util.SimpleApnsPushNotification;
 import com.turo.pushy.apns.util.TokenUtil;
 import io.netty.util.concurrent.Future;
 
 import java.io.File;
-import java.net.InetSocketAddress;
 import java.util.concurrent.ExecutionException;
 
 /**
@@ -54,12 +52,12 @@ public class ExampleApp {
                 .build();
 
         // Optional: we can listen for metrics by setting a metrics listener.
-        apnsClient.setMetricsListener(new NoopMetricsListener());
+        // apnsClient.setMetricsListener(new NoopMetricsListener());
 
         // Optional: we can set a proxy handler factory if we must use a proxy.
-        apnsClient.setProxyHandlerFactory(
+        /* apnsClient.setProxyHandlerFactory(
                 new Socks5ProxyHandlerFactory(
-                        new InetSocketAddress("my.proxy.com", 1080), "username", "password"));
+                        new InetSocketAddress("my.proxy.com", 1080), "username", "password")); */
 
         // Once we've created a client, we can connect it to the APNs gateway.
         // Note that this process is asynchronous; we'll get a Future right
@@ -67,8 +65,8 @@ public class ExampleApp {
         // any notifications. Note that this is a Netty Future, which is an
         // extension of the Java Future interface that allows callers to add
         // listeners and adds methods for checking the status of the Future.
-        final Future<Void> connectFuture = apnsClient.connect(ApnsClient.DEVELOPMENT_APNS_HOST);
-        connectFuture.await();
+        /* final Future<Void> connectFuture = apnsClient.connect(ApnsClient.DEVELOPMENT_APNS_HOST);
+        connectFuture.await(); */
 
         // Once we're connected, we can start sending push notifications.
         final SimpleApnsPushNotification pushNotification;
@@ -116,18 +114,18 @@ public class ExampleApp {
             System.err.println("Failed to send push notification.");
             e.printStackTrace();
 
-            if (e.getCause() instanceof ClientNotConnectedException) {
+            /* if (e.getCause() instanceof ClientNotConnectedException) {
                 // If we failed to send the notification because the client isn't
                 // connected, we can wait for an automatic reconnection attempt
                 // to succeed before sending more notifications.
                 apnsClient.getReconnectionFuture().await();
-            }
+            } */
         }
 
         // Finally, when we're done sending notifications (i.e. when our
-        // application is shutting down), we should disconnect all APNs clients
+        // application is shutting down), we should close all APNs clients
         // that may be in play.
-        final Future<Void> disconnectFuture = apnsClient.disconnect();
+        final Future<Void> disconnectFuture = apnsClient.close();
         disconnectFuture.await();
     }
 }

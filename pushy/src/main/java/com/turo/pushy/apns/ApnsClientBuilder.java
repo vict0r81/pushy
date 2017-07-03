@@ -407,7 +407,7 @@ public class ApnsClientBuilder {
      *
      * @return a reference to this builder
      *
-     * @see ApnsClient#disconnect()
+     * @see ApnsClient#close()
      *
      * @since 0.8
      */
@@ -467,15 +467,10 @@ public class ApnsClientBuilder {
             sslContext = sslContextBuilder.build();
         }
 
-        final ApnsChannelFactory channelFactory;
-        {
-            final int connectionTimeoutMillis = this.connectionTimeout != null ? (int) this.connectionTimeoutUnit.toMillis(this.connectionTimeout) : 0;
-            final long idlePingIntervalMillis = this.idlePingInterval != null ? this.idlePingIntervalUnit.toMillis(this.idlePingInterval) : 0;
-            final long gracefulShutdownTimeoutMillis = this.gracefulShutdownTimeout != null ? this.gracefulShutdownTimeoutUnit.toMillis(this.gracefulShutdownTimeout) : 0;
+        final int connectTimeoutMillis = this.connectionTimeout != null ? (int) this.connectionTimeoutUnit.toMillis(this.connectionTimeout) : 0;
+        final long idlePingIntervalMillis = this.idlePingInterval != null ? this.idlePingIntervalUnit.toMillis(this.idlePingInterval) : 0;
+        final long gracefulShutdownTimeoutMillis = this.gracefulShutdownTimeout != null ? this.gracefulShutdownTimeoutUnit.toMillis(this.gracefulShutdownTimeout) : 0;
 
-            channelFactory = new ApnsChannelFactory(sslContext, this.signingKey, this.proxyHandlerFactory, connectionTimeoutMillis, idlePingIntervalMillis, gracefulShutdownTimeoutMillis, this.apnsServerAddress, this.eventLoopGroup);
-        }
-
-        return new ApnsClient(channelFactory, this.metricsListener, this.eventLoopGroup);
+        return new ApnsClient(sslContext, signingKey, proxyHandlerFactory, connectTimeoutMillis, idlePingIntervalMillis, gracefulShutdownTimeoutMillis, this.apnsServerAddress, this.metricsListener, this.eventLoopGroup);
     }
 }

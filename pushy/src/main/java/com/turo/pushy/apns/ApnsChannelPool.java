@@ -55,7 +55,7 @@ class ApnsChannelPool {
     }
 
     public Future<Channel> acquire() {
-        final Promise acquirePromise = new DefaultPromise(this.executor);
+        final Promise<Channel> acquirePromise = new DefaultPromise<>(this.executor);
 
         if (this.executor.inEventLoop()) {
             this.acquireWithinEventExecutor(acquirePromise);

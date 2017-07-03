@@ -132,7 +132,7 @@ public class ApnsClientBenchmark {
 
     @TearDown
     public void tearDown() throws Exception {
-        this.client.disconnect().await();
+        this.client.close().await();
         this.server.shutdown().await();
 
         this.eventLoopGroup.shutdownGracefully().await();

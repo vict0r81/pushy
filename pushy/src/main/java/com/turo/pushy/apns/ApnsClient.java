@@ -22,17 +22,18 @@
 
 package com.turo.pushy.apns;
 
+import com.turo.pushy.apns.auth.ApnsSigningKey;
+import com.turo.pushy.apns.proxy.ProxyHandlerFactory;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelFuture;
 import io.netty.channel.EventLoopGroup;
 import io.netty.channel.nio.NioEventLoopGroup;
-import io.netty.util.concurrent.DefaultPromise;
-import io.netty.util.concurrent.Future;
-import io.netty.util.concurrent.GenericFutureListener;
-import io.netty.util.concurrent.Promise;
+import io.netty.handler.ssl.SslContext;
+import io.netty.util.concurrent.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.net.InetSocketAddress;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
@@ -65,7 +66,7 @@ import java.util.concurrent.atomic.AtomicLong;
  * <p>Once a connection has been established, an APNs client will attempt to restore that connection automatically if
  * the connection closes unexpectedly. APNs clients employ an exponential back-off strategy to manage the rate of
  * reconnection attempts. Clients will stop trying to reconnect automatically if disconnected via the
- * {@link ApnsClient#disconnect()} method.</p>
+ * {@link ApnsClient#close()} method.</p>
  *
  * <p>Notifications sent by a client to an APNs server are sent asynchronously. A
  * {@link io.netty.util.concurrent.Future io.netty.util.concurrent.Future} is returned immediately when a notification
@@ -99,14 +100,14 @@ public class ApnsClient {
      */
     public static final int DEFAULT_PING_IDLE_TIME_MILLIS = 60_000;
 
-    private static final ClientNotConnectedException NOT_CONNECTED_EXCEPTION = new ClientNotConnectedException();
-
-    private static final long INITIAL_RECONNECT_DELAY_SECONDS = 1; // second
-    private static final long MAX_RECONNECT_DELAY_SECONDS = 60; // seconds
-
     private static final Logger log = LoggerFactory.getLogger(ApnsClient.class);
 
-    protected ApnsClient(final ApnsChannelFactory channelFactory, final ApnsClientMetricsListener metricsListener, final EventLoopGroup eventLoopGroup) {
+    protected ApnsClient(final SslContext sslContext, final ApnsSigningKey signingKey,
+                         final ProxyHandlerFactory proxyHandlerFactory, final int connectTimeoutMillis,
+                         final long idlePingIntervalMillis, final long gracefulShutdownTimeoutMillis,
+                         final InetSocketAddress apnsServerAddress, final ApnsClientMetricsListener metricsListener,
+                         final EventLoopGroup eventLoopGroup) {
+
         if (eventLoopGroup != null) {
             this.eventLoopGroup = eventLoopGroup;
             this.shouldShutDownEventLoopGroup = false;
@@ -117,7 +118,9 @@ public class ApnsClient {
 
         this.metricsListener = metricsListener != null ? metricsListener : new NoopMetricsListener();
 
-        this.channelPool = new ApnsChannelPool(channelFactory, 1, eventLoopGroup.next());
+        final ApnsChannelFactory channelFactory = new ApnsChannelFactory(sslContext, signingKey, proxyHandlerFactory, connectTimeoutMillis, idlePingIntervalMillis, gracefulShutdownTimeoutMillis, apnsServerAddress, this.eventLoopGroup);
+
+        this.channelPool = new ApnsChannelPool(channelFactory, 1, this.eventLoopGroup.next());
     }
 
     /**
@@ -150,7 +153,9 @@ public class ApnsClient {
             @Override
             public void operationComplete(final Future<Channel> acquireFuture) throws Exception {
                 if (acquireFuture.isSuccess()) {
-                    acquireFuture.getNow().writeAndFlush(new PushNotificationAndResponsePromise(notification, responsePromise)).addListener(new GenericFutureListener<ChannelFuture>() {
+                    final Channel channel = acquireFuture.getNow();
+
+                    channel.writeAndFlush(new PushNotificationAndResponsePromise(notification, responsePromise)).addListener(new GenericFutureListener<ChannelFuture>() {
 
                         @Override
                         public void operationComplete(final ChannelFuture future) throws Exception {
@@ -162,6 +167,8 @@ public class ApnsClient {
                             }
                         }
                     });
+
+                    ApnsClient.this.channelPool.release(channel);
                 } else {
                     responsePromise.tryFailure(acquireFuture.cause());
                 }
@@ -209,10 +216,12 @@ public class ApnsClient {
      * @since 0.5
      */
     @SuppressWarnings({ "rawtypes", "unchecked" })
-    public Future<Void> disconnect() {
+    public Future<Void> close() {
         log.info("Disconnecting.");
 
-        final Promise<Void> disconnectPromise = new DefaultPromise<>(this.eventLoopGroup.next());
+        // Since we're (maybe) going to clobber the main event loop group, we should create this promise on the global
+        // event executor instead.
+        final Promise<Void> disconnectPromise = new DefaultPromise<>(GlobalEventExecutor.INSTANCE);
 
         this.channelPool.close().addListener(new GenericFutureListener<Future<Void>>() {
 

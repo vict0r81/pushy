@@ -30,8 +30,10 @@ import io.netty.channel.socket.SocketChannel;
 import io.netty.handler.ssl.ApplicationProtocolNames;
 import io.netty.handler.ssl.ApplicationProtocolNegotiationHandler;
 import io.netty.handler.ssl.SslContext;
+import io.netty.handler.ssl.SslHandler;
 import io.netty.handler.timeout.IdleStateHandler;
 import io.netty.util.AttributeKey;
+import io.netty.util.concurrent.Future;
 import io.netty.util.concurrent.GenericFutureListener;
 
 import java.net.InetSocketAddress;
@@ -41,14 +43,13 @@ class ApnsChannelFactory {
 
     private final Bootstrap bootstrapTemplate;
 
-    private final AttributeKey<ChannelPromise> channelReadyPromiseAttributeKey;
+    private static final AttributeKey<ChannelPromise> CHANNEL_READY_PROMISE_ATTRIBUTE_KEY =
+            AttributeKey.valueOf(ApnsChannelFactory.class, "channelReadyPromise");
 
     public ApnsChannelFactory(final SslContext sslContext, final ApnsSigningKey signingKey,
                               final ProxyHandlerFactory proxyHandlerFactory, final int connectTimeoutMillis,
                               final long idlePingIntervalMillis, final long gracefulShutdownTimeoutMillis,
                               final InetSocketAddress apnsServerAddress, final EventLoopGroup eventLoopGroup) {
-
-        this.channelReadyPromiseAttributeKey = AttributeKey.newInstance("com.turo.pushy.apns.ApnsChannelPool.channelReadyPromise");
 
         this.bootstrapTemplate = new Bootstrap();
         this.bootstrapTemplate.group(eventLoopGroup);
@@ -70,7 +71,18 @@ class ApnsChannelFactory {
                     pipeline.addFirst(proxyHandlerFactory.createProxyHandler());
                 }
 
-                pipeline.addLast(sslContext.newHandler(channel.alloc()));
+                final SslHandler sslHandler = sslContext.newHandler(channel.alloc());
+
+                sslHandler.handshakeFuture().addListener(new GenericFutureListener<Future<Channel>>() {
+                    @Override
+                    public void operationComplete(final Future<Channel> future) throws Exception {
+                        if (!future.isSuccess()) {
+                            channel.attr(CHANNEL_READY_PROMISE_ATTRIBUTE_KEY).get().tryFailure(future.cause());
+                        }
+                    }
+                });
+
+                pipeline.addLast(sslHandler);
                 pipeline.addLast(new ApplicationProtocolNegotiationHandler("") {
                     @Override
                     protected void configurePipeline(final ChannelHandlerContext context, final String protocol) {
@@ -99,7 +111,7 @@ class ApnsChannelFactory {
                             context.pipeline().addLast(new IdleStateHandler(0, 0, idlePingIntervalMillis, TimeUnit.MILLISECONDS));
                             context.pipeline().addLast(apnsClientHandler);
 
-                            context.channel().attr(ApnsChannelFactory.this.channelReadyPromiseAttributeKey).get().trySuccess();
+                            channel.attr(CHANNEL_READY_PROMISE_ATTRIBUTE_KEY).get().trySuccess();
                         } else {
                             throw new IllegalArgumentException("Unexpected protocol: " + protocol);
                         }
@@ -113,7 +125,7 @@ class ApnsChannelFactory {
         final ChannelFuture connectFuture = this.bootstrapTemplate.clone().connect();
         final ChannelPromise channelReadyPromise = new DefaultChannelPromise(connectFuture.channel());
 
-        channelReadyPromise.channel().attr(this.channelReadyPromiseAttributeKey).set(channelReadyPromise);
+        channelReadyPromise.channel().attr(CHANNEL_READY_PROMISE_ATTRIBUTE_KEY).set(channelReadyPromise);
 
         connectFuture.addListener(new GenericFutureListener<ChannelFuture>() {
 

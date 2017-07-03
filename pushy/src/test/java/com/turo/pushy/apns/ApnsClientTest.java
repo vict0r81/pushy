@@ -34,6 +34,7 @@ import junitparams.Parameters;
 import org.junit.*;
 import org.junit.runner.RunWith;
 
+import javax.net.ssl.SSLHandshakeException;
 import java.io.File;
 import java.io.InputStream;
 import java.security.KeyPair;
@@ -43,7 +44,9 @@ import java.util.*;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicInteger;
 
-import static org.junit.Assert.*;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
 
 @RunWith(JUnitParamsRunner.class)
 public class ApnsClientTest {
@@ -236,27 +239,26 @@ public class ApnsClientTest {
         this.server.start(PORT).await();
 
         this.tokenAuthenticationClient = new ApnsClientBuilder()
+                .setApnsServer(HOST, PORT)
                 .setTrustedServerCertificateChain(CA_CERTIFICATE)
                 .setSigningKey(this.signingKey)
                 .setEventLoopGroup(EVENT_LOOP_GROUP)
                 .build();
 
-        this.tokenAuthenticationClient.connect(HOST, PORT).await();
-
         try (final InputStream p12InputStream = ApnsClientTest.class.getResourceAsStream(MULTI_TOPIC_CLIENT_KEYSTORE_FILENAME)) {
             this.tlsAuthenticationClient = new ApnsClientBuilder()
+                    .setApnsServer(HOST, PORT)
                     .setClientCredentials(p12InputStream, KEYSTORE_PASSWORD)
                     .setTrustedServerCertificateChain(CA_CERTIFICATE)
                     .setEventLoopGroup(EVENT_LOOP_GROUP)
                     .build();
         }
-
-        this.tlsAuthenticationClient.connect(HOST, PORT).await();
     }
 
     @After
     public void tearDown() throws Exception {
-        this.tokenAuthenticationClient.disconnect().await();
+        this.tokenAuthenticationClient.close();
+        this.tlsAuthenticationClient.close();
 
         // Mild hack: there's a harmless race condition where we can try to write a `GOAWAY` from the server to the
         // client in the time between when the client closes the connection and the server notices the connection has
@@ -276,15 +278,15 @@ public class ApnsClientTest {
     @Test
     public void testApnsClientWithManagedEventLoopGroup() throws Exception {
         final ApnsClient managedGroupClient = new ApnsClientBuilder()
+                .setApnsServer(HOST, PORT)
                 .setSigningKey(this.signingKey)
                 .setTrustedServerCertificateChain(CA_CERTIFICATE)
                 .build();
 
-        assertTrue(managedGroupClient.connect(HOST, PORT).await().isSuccess());
-        assertTrue(managedGroupClient.disconnect().await().isSuccess());
+        assertTrue(managedGroupClient.close().await().isSuccess());
     }
 
-    @Test
+    /* @Test
     public void testRestartApnsClientWithManagedEventLoopGroup() throws Exception {
         final ApnsClient managedGroupClient = new ApnsClientBuilder()
                 .setSigningKey(this.signingKey)
@@ -292,32 +294,37 @@ public class ApnsClientTest {
                 .build();
 
         assertTrue(managedGroupClient.connect(HOST, PORT).await().isSuccess());
-        assertTrue(managedGroupClient.disconnect().await().isSuccess());
+        assertTrue(managedGroupClient.close().await().isSuccess());
 
         final Future<Void> reconnectFuture = managedGroupClient.connect(HOST, PORT);
 
         assertFalse(reconnectFuture.isSuccess());
         assertTrue(reconnectFuture.cause() instanceof IllegalStateException);
-    }
+    } */
 
     @Test
     public void testConnectToUntrustedServer() throws Exception {
         final ApnsClient cautiousClient = new ApnsClientBuilder()
+                .setApnsServer(HOST, PORT)
                 .setSigningKey(this.signingKey)
                 .setEventLoopGroup(EVENT_LOOP_GROUP)
                 .build();
 
-        final Future<Void> connectFuture = cautiousClient.connect(HOST, PORT).await();
+        try {
+            final Future<PushNotificationResponse<SimpleApnsPushNotification>> sendFuture =
+                    cautiousClient.sendNotification(new SimpleApnsPushNotification("test", "test", "test")).await();
 
-        assertFalse(connectFuture.isSuccess());
-
-        cautiousClient.disconnect().await();
+            assertFalse(sendFuture.isSuccess());
+            assertTrue(sendFuture.cause() instanceof SSLHandshakeException);
+        } finally {
+            cautiousClient.close().await();
+        }
     }
 
-    @Test
+    /* @Test
     public void testReconnectionAfterClose() throws Exception {
         assertTrue(this.tokenAuthenticationClient.isConnected());
-        assertTrue(this.tokenAuthenticationClient.disconnect().await().isSuccess());
+        assertTrue(this.tokenAuthenticationClient.close().await().isSuccess());
 
         assertFalse(this.tokenAuthenticationClient.isConnected());
 
@@ -371,7 +378,7 @@ public class ApnsClientTest {
 
         assertFalse(unconnectedClient.isConnected());
         assertFalse(reconnectionFuture.isSuccess());
-    }
+    } */
 
     @Test
     @Parameters({"true", "false"})
@@ -390,30 +397,10 @@ public class ApnsClientTest {
         assertTrue(response.isAccepted());
     }
 
-    @Test
-    public void testSendNotificationBeforeConnected() throws Exception {
-        final ApnsClient unconnectedClient = new ApnsClientBuilder()
-                .setSigningKey(this.signingKey)
-                .setTrustedServerCertificateChain(CA_CERTIFICATE)
-                .setEventLoopGroup(EVENT_LOOP_GROUP)
-                .build();
-
-        final String testToken = ApnsClientTest.generateRandomDeviceToken();
-
-        this.server.registerDeviceTokenForTopic(DEFAULT_TOPIC, testToken, null);
-
-        final SimpleApnsPushNotification pushNotification = new SimpleApnsPushNotification(testToken, DEFAULT_TOPIC, "test-payload");
-        final Future<PushNotificationResponse<SimpleApnsPushNotification>> sendFuture =
-                unconnectedClient.sendNotification(pushNotification).await();
-
-        assertFalse(sendFuture.isSuccess());
-        assertTrue(sendFuture.cause() instanceof IllegalStateException);
-    }
-
-    @Test
+    /* @Test
     public void testSendNotificationWithExpiredAuthenticationToken() throws Exception {
-        this.tokenAuthenticationClient.disconnect().await();
-        this.tlsAuthenticationClient.disconnect().await();
+        this.tokenAuthenticationClient.close().await();
+        this.tlsAuthenticationClient.close().await();
 
         this.server.shutdown().await();
 
@@ -443,7 +430,7 @@ public class ApnsClientTest {
 
             // Hack: stall until we're confident everything (including listener updates) has made it through the event
             // loop.
-            this.tokenAuthenticationClient.disconnect().await();
+            this.tokenAuthenticationClient.close().await();
 
             // See https://github.com/relayrides/pushy/issues/448
             assertEquals(1, metricsListener.getSentNotifications().size());
@@ -452,7 +439,7 @@ public class ApnsClientTest {
         } finally {
             expiredTokenServer.shutdown().await();
         }
-    }
+    } */
 
     @Test
     @Parameters({"true", "false"})
@@ -584,6 +571,7 @@ public class ApnsClientTest {
             terribleTerribleServer.registerVerificationKey(this.verificationKey, DEFAULT_TOPIC);
 
             final ApnsClient unfortunateClient = new ApnsClientBuilder()
+                    .setApnsServer(HOST, PORT)
                     .setSigningKey(this.signingKey)
                     .setTrustedServerCertificateChain(CA_CERTIFICATE)
                     .setEventLoopGroup(EVENT_LOOP_GROUP)
@@ -591,7 +579,6 @@ public class ApnsClientTest {
 
             try {
                 terribleTerribleServer.start(PORT).await();
-                unfortunateClient.connect(HOST, PORT).await();
 
                 final SimpleApnsPushNotification pushNotification =
                         new SimpleApnsPushNotification(ApnsClientTest.generateRandomDeviceToken(), DEFAULT_TOPIC, "test-payload");
@@ -603,7 +590,7 @@ public class ApnsClientTest {
                 assertFalse(future.isSuccess());
                 assertTrue(future.cause() instanceof ApnsServerException);
             } finally {
-                unfortunateClient.disconnect().await();
+                unfortunateClient.close().await();
                 Thread.sleep(10);
             }
         } finally {
@@ -611,7 +598,7 @@ public class ApnsClientTest {
         }
     }
 
-    @Test
+    /* @Test
     public void testWriteFailureMetrics() throws Exception {
         final ApnsClient unconnectedClient = new ApnsClientBuilder()
                 .setSigningKey(this.signingKey)
@@ -707,7 +694,7 @@ public class ApnsClientTest {
         assertEquals(1, metricsListener.getConnectionAttemptsStarted().get());
         assertEquals(1, metricsListener.getFailedConnectionAttempts().get());
         assertEquals(0, metricsListener.getSuccessfulConnectionAttempts().get());
-    }
+    } */
 
     private static String generateRandomDeviceToken() {
         final byte[] tokenBytes = new byte[TOKEN_LENGTH];
