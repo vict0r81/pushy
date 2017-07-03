@@ -23,7 +23,6 @@
 package com.turo.pushy.apns;
 
 import io.netty.channel.Channel;
-import io.netty.channel.ChannelFuture;
 import io.netty.channel.group.ChannelGroup;
 import io.netty.channel.group.DefaultChannelGroup;
 import io.netty.util.concurrent.*;
@@ -31,7 +30,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.ArrayDeque;
+import java.util.HashSet;
 import java.util.Queue;
+import java.util.Set;
 
 class ApnsChannelPool {
 
@@ -44,6 +45,7 @@ class ApnsChannelPool {
     private final ChannelGroup allChannels;
     private final Queue<Channel> idleChannels = new ArrayDeque<>();
 
+    private final Set<Future<Channel>> pendingCreateChannelFutures = new HashSet<>();
     private final Queue<Promise<Channel>> pendingAcquisitionPromises = new ArrayDeque<>();
 
     private static final Logger log = LoggerFactory.getLogger(ApnsChannelPool.class);
@@ -104,21 +106,25 @@ class ApnsChannelPool {
             }
         } else {
             // We don't have any connections ready to go; create a new one if possible.
-            if (allChannels.size() < this.capacity) {
-                final ChannelFuture createChannelFuture = this.channelFactory.createChannel();
-                allChannels.add(createChannelFuture.channel());
+            if (this.allChannels.size() + this.pendingCreateChannelFutures.size() < this.capacity) {
+                final Future<Channel> createChannelFuture = this.channelFactory.createChannel();
+                this.pendingCreateChannelFutures.add(createChannelFuture);
 
-                createChannelFuture.addListener(new GenericFutureListener<ChannelFuture>() {
+                createChannelFuture.addListener(new GenericFutureListener<Future<Channel>>() {
 
                     @Override
-                    public void operationComplete(final ChannelFuture future) throws Exception {
+                    public void operationComplete(final Future<Channel> future) throws Exception {
+                        ApnsChannelPool.this.pendingCreateChannelFutures.remove(createChannelFuture);
+
                         if (future.isSuccess()) {
+                            final Channel channel = future.getNow();
+
+                            ApnsChannelPool.this.allChannels.add(channel);
                             ApnsChannelPool.this.metricsListener.handleConnectionAdded();
 
-                            acquirePromise.trySuccess(future.channel());
+                            acquirePromise.trySuccess(channel);
                         } else {
                             ApnsChannelPool.this.metricsListener.handleConnectionCreationFailed();
-                            ApnsChannelPool.this.allChannels.remove(future.channel());
 
                             acquirePromise.tryFailure(future.cause());
                         }

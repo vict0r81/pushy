@@ -294,22 +294,6 @@ public class ApnsClientTest {
         assertTrue(managedGroupClient.close().await().isSuccess());
     }
 
-    /* @Test
-    public void testRestartApnsClientWithManagedEventLoopGroup() throws Exception {
-        final ApnsClient managedGroupClient = new ApnsClientBuilder()
-                .setSigningKey(this.signingKey)
-                .setTrustedServerCertificateChain(CA_CERTIFICATE)
-                .build();
-
-        assertTrue(managedGroupClient.connect(HOST, PORT).await().isSuccess());
-        assertTrue(managedGroupClient.close().await().isSuccess());
-
-        final Future<Void> reconnectFuture = managedGroupClient.connect(HOST, PORT);
-
-        assertFalse(reconnectFuture.isSuccess());
-        assertTrue(reconnectFuture.cause() instanceof IllegalStateException);
-    } */
-
     @Test
     public void testConnectToUntrustedServer() throws Exception {
         final ApnsClient cautiousClient = new ApnsClientBuilder()
@@ -329,16 +313,18 @@ public class ApnsClientTest {
         }
     }
 
-    /* @Test
+    @Test
     public void testReconnectionAfterClose() throws Exception {
-        assertTrue(this.tokenAuthenticationClient.isConnected());
-        assertTrue(this.tokenAuthenticationClient.close().await().isSuccess());
+        this.tokenAuthenticationClient.close().await();
 
-        assertFalse(this.tokenAuthenticationClient.isConnected());
+        final SimpleApnsPushNotification pushNotification =
+                new SimpleApnsPushNotification(DEFAULT_DEVICE_TOKEN, DEFAULT_TOPIC, generateRandomPayload());
 
-        assertTrue(this.tokenAuthenticationClient.connect(HOST, PORT).await().isSuccess());
-        assertTrue(this.tokenAuthenticationClient.isConnected());
-    } */
+        final Future<PushNotificationResponse<SimpleApnsPushNotification>> sendFuture =
+                this.tokenAuthenticationClient.sendNotification(pushNotification).await();
+
+        assertFalse(sendFuture.isSuccess());
+    }
 
     @Test
     @Parameters({"true", "false"})

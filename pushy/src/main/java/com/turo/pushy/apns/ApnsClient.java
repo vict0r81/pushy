@@ -93,6 +93,11 @@ public class ApnsClient {
     private final ApnsClientMetricsListener metricsListener;
     private final AtomicLong nextNotificationId = new AtomicLong(0);
 
+    private volatile boolean isClosed = false;
+
+    private static final IllegalStateException CLIENT_CLOSED_EXCEPTION =
+            new IllegalStateException("Client has been closed and can no longer send push notifications.");
+
     /**
      * The default idle time in milliseconds after which the client will send a PING frame to the APNs server.
      *
@@ -195,54 +200,62 @@ public class ApnsClient {
      */
     @SuppressWarnings("unchecked")
     public <T extends ApnsPushNotification> Future<PushNotificationResponse<T>> sendNotification(final T notification) {
-        final Promise<PushNotificationResponse<ApnsPushNotification>> responsePromise = new DefaultPromise<>(this.eventLoopGroup.next());
-        final long notificationId = this.nextNotificationId.getAndIncrement();
+        final Future<PushNotificationResponse<T>> responseFuture;
 
-        this.channelPool.acquire().addListener(new GenericFutureListener<Future<Channel>>() {
-            @Override
-            public void operationComplete(final Future<Channel> acquireFuture) throws Exception {
-                if (acquireFuture.isSuccess()) {
-                    final Channel channel = acquireFuture.getNow();
+        if (!this.isClosed) {
+            final Promise<PushNotificationResponse<ApnsPushNotification>> responsePromise = new DefaultPromise<>(this.eventLoopGroup.next());
+            final long notificationId = this.nextNotificationId.getAndIncrement();
 
-                    channel.writeAndFlush(new PushNotificationAndResponsePromise(notification, responsePromise)).addListener(new GenericFutureListener<ChannelFuture>() {
+            this.channelPool.acquire().addListener(new GenericFutureListener<Future<Channel>>() {
+                @Override
+                public void operationComplete(final Future<Channel> acquireFuture) throws Exception {
+                    if (acquireFuture.isSuccess()) {
+                        final Channel channel = acquireFuture.getNow();
 
-                        @Override
-                        public void operationComplete(final ChannelFuture future) throws Exception {
-                            if (future.isSuccess()) {
-                                ApnsClient.this.metricsListener.handleNotificationSent(ApnsClient.this, notificationId);
-                            } else {
-                                ApnsClient.this.metricsListener.handleWriteFailure(ApnsClient.this, notificationId);
-                                responsePromise.tryFailure(future.cause());
+                        channel.writeAndFlush(new PushNotificationAndResponsePromise(notification, responsePromise)).addListener(new GenericFutureListener<ChannelFuture>() {
+
+                            @Override
+                            public void operationComplete(final ChannelFuture future) throws Exception {
+                                if (future.isSuccess()) {
+                                    ApnsClient.this.metricsListener.handleNotificationSent(ApnsClient.this, notificationId);
+                                } else {
+                                    ApnsClient.this.metricsListener.handleWriteFailure(ApnsClient.this, notificationId);
+                                    responsePromise.tryFailure(future.cause());
+                                }
                             }
-                        }
-                    });
+                        });
 
-                    ApnsClient.this.channelPool.release(channel);
-                } else {
-                    responsePromise.tryFailure(acquireFuture.cause());
-                }
-            }
-        });
-
-        responsePromise.addListener(new GenericFutureListener<Future<PushNotificationResponse<ApnsPushNotification>>>() {
-
-            @Override
-            public void operationComplete(final Future<PushNotificationResponse<ApnsPushNotification>> future) throws Exception {
-                if (future.isSuccess()) {
-                    final PushNotificationResponse<ApnsPushNotification> response = future.getNow();
-
-                    if (response.isAccepted()) {
-                        ApnsClient.this.metricsListener.handleNotificationAccepted(ApnsClient.this, notificationId);
+                        ApnsClient.this.channelPool.release(channel);
                     } else {
-                        ApnsClient.this.metricsListener.handleNotificationRejected(ApnsClient.this, notificationId);
+                        responsePromise.tryFailure(acquireFuture.cause());
                     }
-                } else {
-                    ApnsClient.this.metricsListener.handleWriteFailure(ApnsClient.this, notificationId);
                 }
-            }
-        });
+            });
 
-        return (Future) responsePromise;
+            responsePromise.addListener(new GenericFutureListener<Future<PushNotificationResponse<ApnsPushNotification>>>() {
+
+                @Override
+                public void operationComplete(final Future<PushNotificationResponse<ApnsPushNotification>> future) throws Exception {
+                    if (future.isSuccess()) {
+                        final PushNotificationResponse<ApnsPushNotification> response = future.getNow();
+
+                        if (response.isAccepted()) {
+                            ApnsClient.this.metricsListener.handleNotificationAccepted(ApnsClient.this, notificationId);
+                        } else {
+                            ApnsClient.this.metricsListener.handleNotificationRejected(ApnsClient.this, notificationId);
+                        }
+                    } else {
+                        ApnsClient.this.metricsListener.handleWriteFailure(ApnsClient.this, notificationId);
+                    }
+                }
+            });
+
+            responseFuture = (Future) responsePromise;
+        } else {
+            responseFuture = new FailedFuture<>(GlobalEventExecutor.INSTANCE, CLIENT_CLOSED_EXCEPTION);
+        }
+
+        return responseFuture;
     }
 
     /**
@@ -268,8 +281,10 @@ public class ApnsClient {
     public Future<Void> close() {
         log.info("Disconnecting.");
 
-        // Since we're (maybe) going to clobber the main event loop group, we should create this promise on the global
-        // event executor instead.
+        this.isClosed = true;
+
+        // Since we're (maybe) going to clobber the main event loop group, we should have this promise use the global
+        // event executor to notify listeners.
         final Promise<Void> disconnectPromise = new DefaultPromise<>(GlobalEventExecutor.INSTANCE);
 
         this.channelPool.close().addListener(new GenericFutureListener<Future<Void>>() {

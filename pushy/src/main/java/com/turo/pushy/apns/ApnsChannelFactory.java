@@ -33,17 +33,25 @@ import io.netty.handler.ssl.SslContext;
 import io.netty.handler.ssl.SslHandler;
 import io.netty.handler.timeout.IdleStateHandler;
 import io.netty.util.AttributeKey;
+import io.netty.util.concurrent.DefaultPromise;
 import io.netty.util.concurrent.Future;
 import io.netty.util.concurrent.GenericFutureListener;
+import io.netty.util.concurrent.Promise;
 
 import java.net.InetSocketAddress;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 
 class ApnsChannelFactory {
 
     private final Bootstrap bootstrapTemplate;
 
-    private static final AttributeKey<ChannelPromise> CHANNEL_READY_PROMISE_ATTRIBUTE_KEY =
+    private AtomicLong currentDelaySeconds = new AtomicLong(0);
+
+    private static final long MIN_CONNECT_DELAY_MILLIS = 1; // second
+    private static final long MAX_CONNECT_DELAY_MILLIS = 60; // seconds
+
+    private static final AttributeKey<Promise<Channel>> CHANNEL_READY_PROMISE_ATTRIBUTE_KEY =
             AttributeKey.valueOf(ApnsChannelFactory.class, "channelReadyPromise");
 
     public ApnsChannelFactory(final SslContext sslContext, final ApnsSigningKey signingKey,
@@ -111,7 +119,7 @@ class ApnsChannelFactory {
                             context.pipeline().addLast(new IdleStateHandler(0, 0, idlePingIntervalMillis, TimeUnit.MILLISECONDS));
                             context.pipeline().addLast(apnsClientHandler);
 
-                            channel.attr(CHANNEL_READY_PROMISE_ATTRIBUTE_KEY).get().trySuccess();
+                            channel.attr(CHANNEL_READY_PROMISE_ATTRIBUTE_KEY).get().trySuccess(channel);
                         } else {
                             throw new IllegalArgumentException("Unexpected protocol: " + protocol);
                         }
@@ -121,35 +129,54 @@ class ApnsChannelFactory {
         });
     }
 
-    public ChannelFuture createChannel() {
-        final ChannelFuture connectFuture = this.bootstrapTemplate.clone().connect();
-        final ChannelPromise channelReadyPromise = new DefaultChannelPromise(connectFuture.channel());
+    public Future<Channel> createChannel() {
+        final Promise<Channel> channelReadyPromise = new DefaultPromise<>(this.bootstrapTemplate.group().next());
+        final long delay = this.currentDelaySeconds.get();
 
-        channelReadyPromise.channel().attr(CHANNEL_READY_PROMISE_ATTRIBUTE_KEY).set(channelReadyPromise);
-
-        connectFuture.addListener(new GenericFutureListener<ChannelFuture>() {
+        channelReadyPromise.addListener(new GenericFutureListener<Future<Channel>>() {
 
             @Override
-            public void operationComplete(final ChannelFuture future) throws Exception {
-                if (!future.isSuccess()) {
-                    // This may seem spurious, but our goal here is to accurately report the cause of
-                    // connection failure; if we just wait for connection closure, we won't be able to
-                    // tell callers anything more specific about what went wrong.
-                    channelReadyPromise.tryFailure(future.cause());
-                }
+            public void operationComplete(final Future<Channel> future) throws Exception {
+                final long updatedDelay = future.isSuccess() ? 0 :
+                        Math.max(Math.min(delay * 2, MAX_CONNECT_DELAY_MILLIS), MIN_CONNECT_DELAY_MILLIS);
+
+                ApnsChannelFactory.this.currentDelaySeconds.compareAndSet(delay, updatedDelay);
             }
         });
 
-        connectFuture.channel().closeFuture().addListener(new GenericFutureListener<ChannelFuture> () {
+        this.bootstrapTemplate.config().group().schedule(new Runnable() {
 
             @Override
-            public void operationComplete(final ChannelFuture future) throws Exception {
-                // We always want to try to fail the "channel ready" promise if the connection closes; if it has already
-                // succeeded, this will have no effect.
-                channelReadyPromise.tryFailure(
-                        new IllegalStateException("Channel closed before HTTP/2 preface completed."));
+            public void run() {
+                final ChannelFuture connectFuture = ApnsChannelFactory.this.bootstrapTemplate.clone().connect();
+                connectFuture.channel().attr(CHANNEL_READY_PROMISE_ATTRIBUTE_KEY).set(channelReadyPromise);
+
+                connectFuture.addListener(new GenericFutureListener<ChannelFuture>() {
+
+                    @Override
+                    public void operationComplete(final ChannelFuture future) throws Exception {
+                        if (!future.isSuccess()) {
+                            // This may seem spurious, but our goal here is to accurately report the cause of
+                            // connection failure; if we just wait for connection closure, we won't be able to
+                            // tell callers anything more specific about what went wrong.
+                            channelReadyPromise.tryFailure(future.cause());
+                        }
+                    }
+                });
+
+                connectFuture.channel().closeFuture().addListener(new GenericFutureListener<ChannelFuture> () {
+
+                    @Override
+                    public void operationComplete(final ChannelFuture future) throws Exception {
+                        // We always want to try to fail the "channel ready" promise if the connection closes; if it has already
+                        // succeeded, this will have no effect.
+                        channelReadyPromise.tryFailure(
+                                new IllegalStateException("Channel closed before HTTP/2 preface completed."));
+                    }
+                });
+
             }
-        });
+        }, delay, TimeUnit.SECONDS);
 
         return channelReadyPromise;
     }
