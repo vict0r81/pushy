@@ -67,6 +67,8 @@ public class ApnsClientBuilder {
 
     private EventLoopGroup eventLoopGroup;
 
+    private int concurrentConnections = 1;
+
     private ApnsClientMetricsListener metricsListener;
 
     private ProxyHandlerFactory proxyHandlerFactory;
@@ -326,6 +328,11 @@ public class ApnsClientBuilder {
         return this;
     }
 
+    public ApnsClientBuilder setConcurrentConnections(final int concurrentConnections) {
+        this.concurrentConnections = concurrentConnections;
+        return this;
+    }
+
     /**
      * Sets the metrics listener for the client under construction. Metrics listeners gather information that describes
      * the performance and behavior of a client, and are completely optional.
@@ -471,6 +478,6 @@ public class ApnsClientBuilder {
         final long idlePingIntervalMillis = this.idlePingInterval != null ? this.idlePingIntervalUnit.toMillis(this.idlePingInterval) : 0;
         final long gracefulShutdownTimeoutMillis = this.gracefulShutdownTimeout != null ? this.gracefulShutdownTimeoutUnit.toMillis(this.gracefulShutdownTimeout) : 0;
 
-        return new ApnsClient(sslContext, signingKey, proxyHandlerFactory, connectTimeoutMillis, idlePingIntervalMillis, gracefulShutdownTimeoutMillis, this.apnsServerAddress, this.metricsListener, this.eventLoopGroup);
+        return new ApnsClient(this.apnsServerAddress, sslContext, signingKey, proxyHandlerFactory, connectTimeoutMillis, idlePingIntervalMillis, gracefulShutdownTimeoutMillis, this.concurrentConnections, this.metricsListener, this.eventLoopGroup);
     }
 }

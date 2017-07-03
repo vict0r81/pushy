@@ -102,11 +102,11 @@ public class ApnsClient {
 
     private static final Logger log = LoggerFactory.getLogger(ApnsClient.class);
 
-    protected ApnsClient(final SslContext sslContext, final ApnsSigningKey signingKey,
-                         final ProxyHandlerFactory proxyHandlerFactory, final int connectTimeoutMillis,
-                         final long idlePingIntervalMillis, final long gracefulShutdownTimeoutMillis,
-                         final InetSocketAddress apnsServerAddress, final ApnsClientMetricsListener metricsListener,
-                         final EventLoopGroup eventLoopGroup) {
+    protected ApnsClient(final InetSocketAddress apnsServerAddress, final SslContext sslContext,
+                         final ApnsSigningKey signingKey,  final ProxyHandlerFactory proxyHandlerFactory,
+                         final int connectTimeoutMillis, final long idlePingIntervalMillis,
+                         final long gracefulShutdownTimeoutMillis, final int concurrentConnections,
+                         final ApnsClientMetricsListener metricsListener, final EventLoopGroup eventLoopGroup) {
 
         if (eventLoopGroup != null) {
             this.eventLoopGroup = eventLoopGroup;
@@ -120,7 +120,7 @@ public class ApnsClient {
 
         final ApnsChannelFactory channelFactory = new ApnsChannelFactory(sslContext, signingKey, proxyHandlerFactory, connectTimeoutMillis, idlePingIntervalMillis, gracefulShutdownTimeoutMillis, apnsServerAddress, this.eventLoopGroup);
 
-        this.channelPool = new ApnsChannelPool(channelFactory, 1, this.eventLoopGroup.next());
+        this.channelPool = new ApnsChannelPool(channelFactory, concurrentConnections, this.eventLoopGroup.next());
     }
 
     /**

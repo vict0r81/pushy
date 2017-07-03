@@ -52,6 +52,9 @@ public class ApnsClientBenchmark {
     @Param({"10000"})
     public int notificationCount;
 
+    @Param({"1", "4", "8"})
+    public int concurrentConnections;
+
     private static final String CA_CERTIFICATE_FILENAME = "/ca.pem";
     private static final String SERVER_CERTIFICATES_FILENAME = "/server_certs.pem";
     private static final String SERVER_KEY_FILENAME = "/server_key.pem";
@@ -81,6 +84,7 @@ public class ApnsClientBenchmark {
 
         final ApnsClientBuilder clientBuilder = new ApnsClientBuilder()
                 .setApnsServer(HOST, PORT)
+                .setConcurrentConnections(this.concurrentConnections)
                 .setSigningKey(signingKey)
                 .setTrustedServerCertificateChain(ApnsClientBenchmark.class.getResourceAsStream(CA_CERTIFICATE_FILENAME))
                 .setEventLoopGroup(this.eventLoopGroup);
