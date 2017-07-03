@@ -80,6 +80,7 @@ public class ApnsClientBenchmark {
         }
 
         final ApnsClientBuilder clientBuilder = new ApnsClientBuilder()
+                .setApnsServer(HOST, PORT)
                 .setSigningKey(signingKey)
                 .setTrustedServerCertificateChain(ApnsClientBenchmark.class.getResourceAsStream(CA_CERTIFICATE_FILENAME))
                 .setEventLoopGroup(this.eventLoopGroup);
@@ -103,7 +104,6 @@ public class ApnsClientBenchmark {
         }
 
         this.server.start(PORT).await();
-        this.client.connect(HOST, PORT).await();
     }
 
     @Benchmark

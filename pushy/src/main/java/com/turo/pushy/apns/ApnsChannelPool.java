@@ -23,63 +23,87 @@
 package com.turo.pushy.apns;
 
 import io.netty.channel.Channel;
-import io.netty.util.concurrent.Future;
-import io.netty.util.concurrent.OrderedEventExecutor;
-import io.netty.util.concurrent.Promise;
+import io.netty.channel.ChannelFuture;
+import io.netty.channel.group.ChannelGroup;
+import io.netty.channel.group.DefaultChannelGroup;
+import io.netty.util.concurrent.*;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.ArrayDeque;
-import java.util.HashSet;
 import java.util.Queue;
-import java.util.Set;
 
-class ApnsConnectionPool {
+class ApnsChannelPool {
 
+    private final ApnsChannelFactory channelFactory;
     private final OrderedEventExecutor executor;
     private final int capacity;
 
-    private final Set<Channel> allChannels = new HashSet<>();
+    private final ChannelGroup allChannels;
     private final Queue<Channel> idleChannels = new ArrayDeque<>();
 
     private final Queue<Promise<Channel>> pendingAcquisitionPromises = new ArrayDeque<>();
 
-    public ApnsConnectionPool(final OrderedEventExecutor executor, final int capacity) {
-        this.executor = executor;
+    private static final Logger log = LoggerFactory.getLogger(ApnsChannelPool.class);
+
+    public ApnsChannelPool(final ApnsChannelFactory channelFactory, final int capacity, final OrderedEventExecutor executor) {
+        this.channelFactory = channelFactory;
         this.capacity = capacity;
+        this.executor = executor;
+
+        this.allChannels = new DefaultChannelGroup(this.executor, true);
     }
 
-    public Future<Channel> acquire(final Promise<Channel> promise) {
+    public Future<Channel> acquire() {
+        final Promise acquirePromise = new DefaultPromise(this.executor);
+
         if (this.executor.inEventLoop()) {
-            this.acquireWithinEventExecutor(promise);
+            this.acquireWithinEventExecutor(acquirePromise);
         } else {
             this.executor.submit(new Runnable() {
                 @Override
                 public void run() {
-                    ApnsConnectionPool.this.acquireWithinEventExecutor(promise);
+                    ApnsChannelPool.this.acquireWithinEventExecutor(acquirePromise);
                 }
             });
         }
 
-        return promise;
+        return acquirePromise;
     }
 
-    private void acquireWithinEventExecutor(final Promise<Channel> promise) {
+    private void acquireWithinEventExecutor(final Promise<Channel> acquirePromise) {
         assert this.executor.inEventLoop();
 
-        final Channel channelFromIdlePool = ApnsConnectionPool.this.idleChannels.poll();
+        final Channel channelFromIdlePool = ApnsChannelPool.this.idleChannels.poll();
 
         if (channelFromIdlePool != null) {
             if (channelFromIdlePool.isActive()) {
-                promise.trySuccess(channelFromIdlePool);
+                acquirePromise.trySuccess(channelFromIdlePool);
             } else {
                 this.discardChannel(channelFromIdlePool);
-                this.acquireWithinEventExecutor(promise);
+                this.acquireWithinEventExecutor(acquirePromise);
             }
         } else {
             // We don't have any connections ready to go; create a new one if possible.
             if (allChannels.size() < this.capacity) {
-                // TODO
+                final ChannelFuture createChannelFuture = this.channelFactory.createChannel();
+                allChannels.add(createChannelFuture.channel());
+
+                createChannelFuture.addListener(new GenericFutureListener<ChannelFuture>() {
+
+                    @Override
+                    public void operationComplete(final ChannelFuture future) throws Exception {
+                        // TODO Metrics
+                        if (future.isSuccess()) {
+                            acquirePromise.trySuccess(future.channel());
+                        } else {
+                            acquirePromise.tryFailure(future.cause());
+                            ApnsChannelPool.this.allChannels.remove(future.channel());
+                        }
+                    }
+                });
             } else {
-                pendingAcquisitionPromises.add(promise);
+                pendingAcquisitionPromises.add(acquirePromise);
             }
         }
     }
@@ -91,7 +115,7 @@ class ApnsConnectionPool {
             this.executor.submit(new Runnable() {
                 @Override
                 public void run() {
-                    ApnsConnectionPool.this.releaseWithinEventExecutor(channel);
+                    ApnsChannelPool.this.releaseWithinEventExecutor(channel);
                 }
             });
         }
@@ -114,5 +138,9 @@ class ApnsConnectionPool {
         this.allChannels.remove(channel);
 
         channel.close();
+    }
+
+    public Future<Void> close() {
+        return this.allChannels.close();
     }
 }

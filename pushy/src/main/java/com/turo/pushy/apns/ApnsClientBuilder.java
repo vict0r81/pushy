@@ -38,6 +38,7 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.net.InetSocketAddress;
 import java.security.KeyStore;
 import java.security.KeyStoreException;
 import java.security.PrivateKey;
@@ -52,6 +53,8 @@ import java.util.concurrent.TimeUnit;
  * @author <a href="https://github.com/jchambers">Jon Chambers</a>
  */
 public class ApnsClientBuilder {
+    private InetSocketAddress apnsServerAddress;
+
     private X509Certificate clientCertificate;
     private PrivateKey privateKey;
     private String privateKeyPassword;
@@ -77,7 +80,50 @@ public class ApnsClientBuilder {
     private Long gracefulShutdownTimeout;
     private TimeUnit gracefulShutdownTimeoutUnit;
 
+    /**
+     * The hostname for the production APNs gateway.
+     *
+     * @since 0.5
+     */
+    public static final String PRODUCTION_APNS_HOST = "api.push.apple.com";
+
+    /**
+     * The hostname for the development APNs gateway.
+     *
+     * @since 0.5
+     */
+    public static final String DEVELOPMENT_APNS_HOST = "api.development.push.apple.com";
+
+    /**
+     * The default (HTTPS) port for communication with the APNs gateway.
+     *
+     * @since 0.5
+     */
+    public static final int DEFAULT_APNS_PORT = 443;
+
+    /**
+     * <p>An alternative port for communication with the APNs gateway. According to Apple's documentation:</p>
+     *
+     * <blockquote>You can alternatively use port 2197 when communicating with APNs. You might do this, for example, to
+     * allow APNs traffic through your firewall but to block other HTTPS traffic.</blockquote>
+     *
+     * @see <a href="https://developer.apple.com/library/content/documentation/NetworkingInternet/Conceptual/RemoteNotificationsPG/CommunicatingwithAPNs.html#//apple_ref/doc/uid/TP40008194-CH11-SW1">Communicating
+     * with APNs</a>
+     *
+     * @since 0.5
+     */
+    public static final int ALTERNATE_APNS_PORT = 2197;
+
     private static final Logger log = LoggerFactory.getLogger(ApnsClientBuilder.class);
+
+    public ApnsClientBuilder setApnsServer(final String hostname) {
+        return this.setApnsServer(hostname, DEFAULT_APNS_PORT);
+    }
+
+    public ApnsClientBuilder setApnsServer(final String hostname, final int port) {
+        this.apnsServerAddress = new InetSocketAddress(hostname, port);
+        return this;
+    }
 
     /**
      * <p>Sets the TLS credentials for the client under construction using the contents of the given PKCS#12 file.
@@ -382,6 +428,10 @@ public class ApnsClientBuilder {
      * @since 0.8
      */
     public ApnsClient build() throws SSLException {
+        if (this.apnsServerAddress == null) {
+            throw new IllegalStateException("No APNs server address specified.");
+        }
+
         if (this.clientCertificate == null && this.privateKey == null && this.signingKey == null) {
             throw new IllegalStateException("No client credentials specified; either TLS credentials (a " +
                     "certificate/private key) or an APNs signing key must be provided before building a client.");
@@ -417,23 +467,15 @@ public class ApnsClientBuilder {
             sslContext = sslContextBuilder.build();
         }
 
-        final ApnsClient apnsClient = new ApnsClient(sslContext, this.signingKey, this.eventLoopGroup);
+        final ApnsChannelFactory channelFactory;
+        {
+            final int connectionTimeoutMillis = this.connectionTimeout != null ? (int) this.connectionTimeoutUnit.toMillis(this.connectionTimeout) : 0;
+            final long idlePingIntervalMillis = this.idlePingInterval != null ? this.idlePingIntervalUnit.toMillis(this.idlePingInterval) : 0;
+            final long gracefulShutdownTimeoutMillis = this.gracefulShutdownTimeout != null ? this.gracefulShutdownTimeoutUnit.toMillis(this.gracefulShutdownTimeout) : 0;
 
-        apnsClient.setMetricsListener(this.metricsListener);
-        apnsClient.setProxyHandlerFactory(this.proxyHandlerFactory);
-
-        if (this.connectionTimeout != null) {
-            apnsClient.setConnectionTimeout((int) this.connectionTimeoutUnit.toMillis(this.connectionTimeout));
+            channelFactory = new ApnsChannelFactory(sslContext, this.signingKey, this.proxyHandlerFactory, connectionTimeoutMillis, idlePingIntervalMillis, gracefulShutdownTimeoutMillis, this.apnsServerAddress, this.eventLoopGroup);
         }
 
-        if (this.idlePingInterval != null) {
-            apnsClient.setPingInterval(this.idlePingIntervalUnit.toMillis(this.idlePingInterval));
-        }
-
-        if (this.gracefulShutdownTimeout != null) {
-            apnsClient.setGracefulShutdownTimeout(this.gracefulShutdownTimeoutUnit.toMillis(this.gracefulShutdownTimeout));
-        }
-
-        return apnsClient;
+        return new ApnsClient(channelFactory, this.metricsListener, this.eventLoopGroup);
     }
 }
