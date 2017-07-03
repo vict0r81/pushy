@@ -151,32 +151,6 @@ class ApnsChannelFactory {
             }
         });
 
-        /* this.connectionReadyPromise.addListener(new GenericFutureListener<ChannelFuture>() {
-
-            @Override
-            public void operationComplete(final ChannelFuture future) throws Exception {
-                if (future.isSuccess()) {
-                    synchronized (ApnsClient.this.bootstrap) {
-                        if (ApnsClient.this.reconnectionPromise != null) {
-                            log.info("Connection to {} restored.", future.channel().remoteAddress());
-                            ApnsClient.this.reconnectionPromise.trySuccess();
-                        } else {
-                            log.info("Connected to {}.", future.channel().remoteAddress());
-                        }
-
-                        ApnsClient.this.reconnectDelaySeconds = INITIAL_RECONNECT_DELAY_SECONDS;
-                        ApnsClient.this.reconnectionPromise = future.channel().newPromise();
-                    }
-
-                    ApnsClient.this.metricsListener.handleConnectionAttemptSucceeded(ApnsClient.this);
-                } else {
-                    log.info("Failed to connect.", future.cause());
-
-                    ApnsClient.this.metricsListener.handleConnectionAttemptFailed(ApnsClient.this);
-                }
-            }
-        }); */
-
         return channelReadyPromise;
     }
 }

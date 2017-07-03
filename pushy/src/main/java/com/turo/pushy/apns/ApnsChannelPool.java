@@ -39,6 +39,8 @@ class ApnsChannelPool {
     private final OrderedEventExecutor executor;
     private final int capacity;
 
+    private final ApnsChannelPoolMetricsListener metricsListener;
+
     private final ChannelGroup allChannels;
     private final Queue<Channel> idleChannels = new ArrayDeque<>();
 
@@ -46,10 +48,27 @@ class ApnsChannelPool {
 
     private static final Logger log = LoggerFactory.getLogger(ApnsChannelPool.class);
 
-    public ApnsChannelPool(final ApnsChannelFactory channelFactory, final int capacity, final OrderedEventExecutor executor) {
+    private static class NoopChannelPoolMetricsListener implements ApnsChannelPoolMetricsListener {
+
+        @Override
+        public void handleConnectionAdded() {
+        }
+
+        @Override
+        public void handleConnectionRemoved() {
+        }
+
+        @Override
+        public void handleConnectionCreationFailed() {
+        }
+    }
+
+    public ApnsChannelPool(final ApnsChannelFactory channelFactory, final int capacity, final OrderedEventExecutor executor, final ApnsChannelPoolMetricsListener metricsListener) {
         this.channelFactory = channelFactory;
         this.capacity = capacity;
         this.executor = executor;
+
+        this.metricsListener = metricsListener != null ? metricsListener : new NoopChannelPoolMetricsListener();
 
         this.allChannels = new DefaultChannelGroup(this.executor, true);
     }
@@ -93,12 +112,15 @@ class ApnsChannelPool {
 
                     @Override
                     public void operationComplete(final ChannelFuture future) throws Exception {
-                        // TODO Metrics
                         if (future.isSuccess()) {
+                            ApnsChannelPool.this.metricsListener.handleConnectionAdded();
+
                             acquirePromise.trySuccess(future.channel());
                         } else {
-                            acquirePromise.tryFailure(future.cause());
+                            ApnsChannelPool.this.metricsListener.handleConnectionCreationFailed();
                             ApnsChannelPool.this.allChannels.remove(future.channel());
+
+                            acquirePromise.tryFailure(future.cause());
                         }
                     }
                 });
@@ -136,6 +158,8 @@ class ApnsChannelPool {
 
         this.idleChannels.remove(channel);
         this.allChannels.remove(channel);
+
+        this.metricsListener.handleConnectionRemoved();
 
         channel.close();
     }

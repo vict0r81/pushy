@@ -102,6 +102,37 @@ public class ApnsClient {
 
     private static final Logger log = LoggerFactory.getLogger(ApnsClient.class);
 
+    private static class NoopApnsClientMetricsListener implements ApnsClientMetricsListener {
+
+        @Override
+        public void handleWriteFailure(final ApnsClient apnsClient, final long notificationId) {
+        }
+
+        @Override
+        public void handleNotificationSent(final ApnsClient apnsClient, final long notificationId) {
+        }
+
+        @Override
+        public void handleNotificationAccepted(final ApnsClient apnsClient, final long notificationId) {
+        }
+
+        @Override
+        public void handleNotificationRejected(final ApnsClient apnsClient, final long notificationId) {
+        }
+
+        @Override
+        public void handleConnectionAdded(final ApnsClient apnsClient) {
+        }
+
+        @Override
+        public void handleConnectionRemoved(final ApnsClient apnsClient) {
+        }
+
+        @Override
+        public void handleConnectionCreationFailed(final ApnsClient apnsClient) {
+        }
+    }
+
     protected ApnsClient(final InetSocketAddress apnsServerAddress, final SslContext sslContext,
                          final ApnsSigningKey signingKey,  final ProxyHandlerFactory proxyHandlerFactory,
                          final int connectTimeoutMillis, final long idlePingIntervalMillis,
@@ -116,11 +147,29 @@ public class ApnsClient {
             this.shouldShutDownEventLoopGroup = true;
         }
 
-        this.metricsListener = metricsListener != null ? metricsListener : new NoopMetricsListener();
+        this.metricsListener = metricsListener != null ? metricsListener : new NoopApnsClientMetricsListener();
 
         final ApnsChannelFactory channelFactory = new ApnsChannelFactory(sslContext, signingKey, proxyHandlerFactory, connectTimeoutMillis, idlePingIntervalMillis, gracefulShutdownTimeoutMillis, apnsServerAddress, this.eventLoopGroup);
 
-        this.channelPool = new ApnsChannelPool(channelFactory, concurrentConnections, this.eventLoopGroup.next());
+        final ApnsChannelPoolMetricsListener channelPoolMetricsListener = new ApnsChannelPoolMetricsListener() {
+
+            @Override
+            public void handleConnectionAdded() {
+                ApnsClient.this.metricsListener.handleConnectionAdded(ApnsClient.this);
+            }
+
+            @Override
+            public void handleConnectionRemoved() {
+                ApnsClient.this.metricsListener.handleConnectionRemoved(ApnsClient.this);
+            }
+
+            @Override
+            public void handleConnectionCreationFailed() {
+                ApnsClient.this.metricsListener.handleConnectionCreationFailed(ApnsClient.this);
+            }
+        };
+
+        this.channelPool = new ApnsChannelPool(channelFactory, concurrentConnections, this.eventLoopGroup.next(), channelPoolMetricsListener);
     }
 
     /**
