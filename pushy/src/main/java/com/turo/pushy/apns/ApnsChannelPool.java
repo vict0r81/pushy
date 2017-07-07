@@ -36,7 +36,7 @@ import java.util.Set;
 
 class ApnsChannelPool {
 
-    private final ApnsChannelFactory channelFactory;
+    private final PooledObjectFactory<Channel> channelFactory;
     private final OrderedEventExecutor executor;
     private final int capacity;
 
@@ -65,7 +65,7 @@ class ApnsChannelPool {
         }
     }
 
-    public ApnsChannelPool(final ApnsChannelFactory channelFactory, final int capacity, final OrderedEventExecutor executor, final ApnsChannelPoolMetricsListener metricsListener) {
+    public ApnsChannelPool(final PooledObjectFactory<Channel> channelFactory, final int capacity, final OrderedEventExecutor executor, final ApnsChannelPoolMetricsListener metricsListener) {
         this.channelFactory = channelFactory;
         this.capacity = capacity;
         this.executor = executor;
@@ -107,7 +107,7 @@ class ApnsChannelPool {
         } else {
             // We don't have any connections ready to go; create a new one if possible.
             if (this.allChannels.size() + this.pendingCreateChannelFutures.size() < this.capacity) {
-                final Future<Channel> createChannelFuture = this.channelFactory.createChannel();
+                final Future<Channel> createChannelFuture = this.channelFactory.create(executor.<Channel>newPromise());
                 this.pendingCreateChannelFutures.add(createChannelFuture);
 
                 createChannelFuture.addListener(new GenericFutureListener<Future<Channel>>() {
@@ -167,7 +167,7 @@ class ApnsChannelPool {
 
         this.metricsListener.handleConnectionRemoved();
 
-        channel.close();
+        this.channelFactory.destroy(channel, this.executor.<Void>newPromise());
     }
 
     public Future<Void> close() {

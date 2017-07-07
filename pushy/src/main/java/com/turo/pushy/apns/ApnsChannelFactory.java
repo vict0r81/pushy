@@ -33,16 +33,16 @@ import io.netty.handler.ssl.SslContext;
 import io.netty.handler.ssl.SslHandler;
 import io.netty.handler.timeout.IdleStateHandler;
 import io.netty.util.AttributeKey;
-import io.netty.util.concurrent.DefaultPromise;
 import io.netty.util.concurrent.Future;
 import io.netty.util.concurrent.GenericFutureListener;
 import io.netty.util.concurrent.Promise;
+import io.netty.util.concurrent.PromiseNotifier;
 
 import java.net.InetSocketAddress;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 
-class ApnsChannelFactory {
+class ApnsChannelFactory implements PooledObjectFactory<Channel> {
 
     private final Bootstrap bootstrapTemplate;
 
@@ -129,8 +129,8 @@ class ApnsChannelFactory {
         });
     }
 
-    public Future<Channel> createChannel() {
-        final Promise<Channel> channelReadyPromise = new DefaultPromise<>(this.bootstrapTemplate.group().next());
+    @Override
+    public Future<Channel> create(final Promise<Channel> channelReadyPromise) {
         final long delay = this.currentDelaySeconds.get();
 
         channelReadyPromise.addListener(new GenericFutureListener<Future<Channel>>() {
@@ -179,5 +179,11 @@ class ApnsChannelFactory {
         }, delay, TimeUnit.SECONDS);
 
         return channelReadyPromise;
+    }
+
+    @Override
+    public Future<Void> destroy(final Channel channel, final Promise<Void> promise) {
+        channel.close().addListener(new PromiseNotifier<>(promise));
+        return promise;
     }
 }
