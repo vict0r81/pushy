@@ -86,6 +86,13 @@ class ApnsChannelPool {
                 public void run() {
                     ApnsChannelPool.this.acquireWithinEventExecutor(acquirePromise);
                 }
+            }).addListener(new GenericFutureListener() {
+                @Override
+                public void operationComplete(final Future future) throws Exception {
+                    if (!future.isSuccess()) {
+                        acquirePromise.tryFailure(future.cause());
+                    }
+                }
             });
         }
 
