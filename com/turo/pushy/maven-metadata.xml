@@ -1,12 +1,12 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <metadata>
   <groupId>com.turo</groupId>
-  <artifactId>pushy-parent</artifactId>
+  <artifactId>pushy</artifactId>
   <versioning>
     <release>0.11.mdm-patch</release>
     <versions>
       <version>0.11.mdm-patch</version>
     </versions>
-    <lastUpdated>20170727121050</lastUpdated>
+    <lastUpdated>20170727121153</lastUpdated>
   </versioning>
 </metadata>
