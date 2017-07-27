@@ -22,6 +22,9 @@
 
 package com.turo.pushy.apns.util;
 
+import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
+
 import java.io.CharArrayWriter;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
@@ -29,18 +32,14 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-import com.google.gson.Gson;
-import com.google.gson.GsonBuilder;
-
 /**
  * <p>A utility class for constructing JSON payloads suitable for inclusion in APNs push notifications. Payload builders
  * are reusable, but are <em>not</em> thread-safe.</p>
  *
  * @author <a href="https://github.com/jchambers">Jon Chambers</a>
- *
  * @see <a href=
- *      "https://developer.apple.com/library/content/documentation/NetworkingInternet/Conceptual/RemoteNotificationsPG/PayloadKeyReference.html">
- *      Local and Push Notification Programming Guide - Apple Push Notification Service - Payload Key Reference</a>
+ * "https://developer.apple.com/library/content/documentation/NetworkingInternet/Conceptual/RemoteNotificationsPG/PayloadKeyReference.html">
+ * Local and Push Notification Programming Guide - Apple Push Notification Service - Payload Key Reference</a>
  */
 public class ApnsPayloadBuilder {
 
@@ -64,12 +63,15 @@ public class ApnsPayloadBuilder {
     private boolean mutableContent = false;
     private String threadId = null;
     private String[] urlArguments = null;
+    private String deviceToken = null;
+    private ApnsPushType pushType;
 
     private boolean preferStringRepresentationForAlerts = false;
 
     private final CharArrayWriter buffer = new CharArrayWriter(DEFAULT_MAXIMUM_PAYLOAD_SIZE / 4);
 
     private static final String APS_KEY = "aps";
+    private static final String MDM_KEY = "mdm";
     private static final String ALERT_KEY = "alert";
     private static final String BADGE_KEY = "badge";
     private static final String SOUND_KEY = "sound";
@@ -120,10 +122,8 @@ public class ApnsPayloadBuilder {
      * for backward-compatibility. By default, payload builders will always represent alerts as dictionaries.
      *
      * @param preferStringRepresentationForAlerts if {@code true}, then this payload builder will represent alerts as
-     * strings when possible; otherwise, alerts will always be represented as dictionaries
-     *
+     *                                            strings when possible; otherwise, alerts will always be represented as dictionaries
      * @return a reference to this payload builder
-     *
      * @since 0.8.2
      */
     public ApnsPayloadBuilder setPreferStringRepresentationForAlerts(final boolean preferStringRepresentationForAlerts) {
@@ -134,13 +134,11 @@ public class ApnsPayloadBuilder {
     /**
      * <p>Sets the literal text of the alert message to be shown for the push notification. Clears any previously-set
      * localized alert message key and arguments.</p>
-     *
+     * <p>
      * <p>By default, no message is shown.</p>
      *
      * @param alertBody the literal message to be shown for this push notification
-     *
      * @return a reference to this payload builder
-     *
      * @see ApnsPayloadBuilder#setLocalizedAlertMessage(String, String...)
      */
     public ApnsPayloadBuilder setAlertBody(final String alertBody) {
@@ -156,14 +154,12 @@ public class ApnsPayloadBuilder {
      * <p>Sets the key of a message in the receiving app's localized string list to be shown for the push notification.
      * The message in the app's string list may optionally have placeholders, which will be populated by values from the
      * given {@code alertArguments}. Clears any previously-set literal alert body.</p>
-     *
+     * <p>
      * <p>By default, no message is shown.</p>
      *
      * @param localizedAlertKey a key to a string in the receiving app's localized string list
-     * @param alertArguments arguments to populate placeholders in the localized alert string; may be {@code null}
-     *
+     * @param alertArguments    arguments to populate placeholders in the localized alert string; may be {@code null}
      * @return a reference to this payload builder
-     *
      * @see ApnsPayloadBuilder#setAlertBody(String)
      */
     public ApnsPayloadBuilder setLocalizedAlertMessage(final String localizedAlertKey, final String... alertArguments) {
@@ -179,17 +175,15 @@ public class ApnsPayloadBuilder {
      * <p>Sets a short description of the notification purpose. Clears any previously-set localized title key and
      * arguments. The Apple Watch will display the title as part of the notification. According to Apple's
      * documentation, this should be:</p>
-     *
+     * <p>
      * <blockquote>A short string describing the purpose of the notification. Apple Watch displays this string as part
      * of the notification interface. This string is displayed only briefly and should be crafted so that it can be
      * understood quickly.</blockquote>
-     *
+     * <p>
      * <p>By default, no title is included.</p>
      *
      * @param alertTitle the description to be shown for this push notification
-     *
      * @return a reference to this payload builder
-     *
      * @see ApnsPayloadBuilder#setLocalizedAlertTitle(String, String...)
      */
     public ApnsPayloadBuilder setAlertTitle(final String alertTitle) {
@@ -207,8 +201,7 @@ public class ApnsPayloadBuilder {
      * have placeholders, which will be populated by values from the given {@code alertArguments}.</p>
      *
      * @param localizedAlertTitleKey a key to a string in the receiving app's localized string list
-     * @param alertTitleArguments arguments to populate placeholders in the localized alert string; may be {@code null}
-     *
+     * @param alertTitleArguments    arguments to populate placeholders in the localized alert string; may be {@code null}
      * @return a reference to this payload builder
      */
     public ApnsPayloadBuilder setLocalizedAlertTitle(final String localizedAlertTitleKey, final String... alertTitleArguments) {
@@ -222,13 +215,11 @@ public class ApnsPayloadBuilder {
 
     /**
      * <p>Sets a subtitle for the notification. Clears any previously-set localized subtitle key and arguments.</p>
-     *
+     * <p>
      * <p>By default, no subtitle is included. Requires iOS 10 or newer.</p>
      *
      * @param alertSubtitle the subtitle for this push notification
-     *
      * @return a reference to this payload builder
-     *
      * @since 0.8.1
      */
     public ApnsPayloadBuilder setAlertSubtitle(final String alertSubtitle) {
@@ -244,15 +235,13 @@ public class ApnsPayloadBuilder {
      * <p>Sets the key of the subtitle string in the receiving app's localized string list to be shown for the push
      * notification. Clears any previously-set literal subtitle. The message in the app's string list may optionally
      * have placeholders, which will be populated by values from the given {@code alertSubtitleArguments}.</p>
-     *
+     * <p>
      * <p>By default, no subtitle is included. Requires iOS 10 or newer.</p>
      *
      * @param localizedAlertSubtitleKey a key to a string in the receiving app's localized string list
-     * @param alertSubtitleArguments arguments to populate placeholders in the localized subtitle string; may be
-     * {@code null}
-     *
+     * @param alertSubtitleArguments    arguments to populate placeholders in the localized subtitle string; may be
+     *                                  {@code null}
      * @return a reference to this payload builder
-     *
      * @since 0.8.1
      */
     public ApnsPayloadBuilder setLocalizedAlertSubtitle(final String localizedAlertSubtitleKey, final String... alertSubtitleArguments) {
@@ -267,7 +256,7 @@ public class ApnsPayloadBuilder {
     /**
      * <p>Sets the image to be shown when the receiving app launches in response to this push notification. According
      * to Apple's documentation, this should be:</p>
-     *
+     * <p>
      * <blockquote>The filename of an image file in the application bundle; it may include the extension or omit it.
      * The image is used as the launch image when users tap the action button or move the action slider. If this
      * property is not specified, the system either uses the previous snapshot, uses the image identified by the
@@ -275,8 +264,7 @@ public class ApnsPayloadBuilder {
      * {@code Default.png}.</blockquote>
      *
      * @param launchImageFilename the filename of an image file in the receiving app's bundle to be shown when launching
-     * the app from the push notification
-     *
+     *                            the app from the push notification
      * @return a reference to this payload builder
      */
     public ApnsPayloadBuilder setLaunchImageFileName(final String launchImageFilename) {
@@ -289,12 +277,11 @@ public class ApnsPayloadBuilder {
      * If {@code true} and no localized action button key is set, the default label (defined by the receiving operating
      * system) is used. If @{code true} and a localized action button key is set, the string for that key is used as
      * the label of the action button. If {@code false}, no action button is shown under any circumstances</p>
-     *
+     * <p>
      * <p>By default, an action button will be shown.</p>
      *
      * @param showActionButton {@code true} to show an action button when the push notification is presented as an alert
-     * or {@code false} to show an alert with no action button
-     *
+     *                         or {@code false} to show an alert with no action button
      * @return a reference to this payload builder
      */
     public ApnsPayloadBuilder setShowActionButton(final boolean showActionButton) {
@@ -308,12 +295,9 @@ public class ApnsPayloadBuilder {
      * used for the action button.</p>
      *
      * @param action the literal label to be shown on the action button for this notification
-     *
      * @return a reference to this payload builder
-     *
      * @see ApnsPayloadBuilder#setLocalizedActionButtonKey(String)
      * @see ApnsPayloadBuilder#setShowActionButton(boolean)
-     *
      * @since 0.8.2
      */
     public ApnsPayloadBuilder setActionButtonLabel(final String action) {
@@ -329,9 +313,7 @@ public class ApnsPayloadBuilder {
      * action button label. By default, the OS-default label will be used for the action button.</p>
      *
      * @param localizedActionButtonKey a key to a string in the receiving app's localized string list
-     *
      * @return a reference to this payload builder
-     *
      * @see ApnsPayloadBuilder#setActionButtonLabel(String)
      * @see ApnsPayloadBuilder#setShowActionButton(boolean)
      */
@@ -348,7 +330,6 @@ public class ApnsPayloadBuilder {
      * its current state. By default, no change is made to the badge.</p>
      *
      * @param badgeNumber the number to display as the badge of application or {@code null} to leave the badge unchanged
-     *
      * @return a reference to this payload builder
      */
     public ApnsPayloadBuilder setBadgeNumber(final Integer badgeNumber) {
@@ -359,14 +340,12 @@ public class ApnsPayloadBuilder {
     /**
      * <p>Sets the name of the action category name for interactive remote notifications. According to Apple's
      * documentation, this should be:</p>
-     *
+     * <p>
      * <blockquote>...a string value that represents the identifier property of the
      * {@code UIMutableUserNotificationCategory} object you created to define custom actions.</blockquote>
      *
      * @param categoryName the action category name
-     *
      * @return a reference to this payload builder
-     *
      * @see <a href="https://developer.apple.com/library/content/documentation/NetworkingInternet/Conceptual/RemoteNotificationsPG/SupportingNotificationsinYourApp.html#//apple_ref/doc/uid/TP40008194-CH4-SW26">Configuring
      * Categories and Actionable Notifications</a>
      */
@@ -378,18 +357,15 @@ public class ApnsPayloadBuilder {
     /**
      * <p>Sets the name of the sound file to play when the push notification is received. According to Apple's
      * documentation, the value here should be:</p>
-     *
+     * <p>
      * <blockquote>...the name of a sound file in the application bundle. The sound in this file is played as an alert.
      * If the sound file doesn't exist or {@code default} is specified as the value, the default alert sound is
      * played.</blockquote>
-     *
+     * <p>
      * <p>By default, no sound is included in the push notification.</p>
      *
-     * @param soundFileName
-     *            the name of the sound file to play, or {@code null} to send no sound
-     *
+     * @param soundFileName the name of the sound file to play, or {@code null} to send no sound
      * @return a reference to this payload builder
-     *
      * @see ApnsPayloadBuilder#DEFAULT_SOUND_FILENAME
      */
     public ApnsPayloadBuilder setSoundFileName(final String soundFileName) {
@@ -403,13 +379,11 @@ public class ApnsPayloadBuilder {
      * in the payload.</p>
      *
      * @param contentAvailable {@code true} to include a flag that indicates that new content is available to be
-     * downloaded in the background or {@code false} otherwise
-     *
+     *                         downloaded in the background or {@code false} otherwise
      * @return a reference to this payload builder
-     *
      * @see <a href=
-     *      "https://developer.apple.com/library/content/documentation/NetworkingInternet/Conceptual/RemoteNotificationsPG/CreatingtheNotificationPayload.html#//apple_ref/doc/uid/TP40008194-CH10-SW8">Configuring
-     *      a Silent Notification</a>
+     * "https://developer.apple.com/library/content/documentation/NetworkingInternet/Conceptual/RemoteNotificationsPG/CreatingtheNotificationPayload.html#//apple_ref/doc/uid/TP40008194-CH10-SW8">Configuring
+     * a Silent Notification</a>
      */
     public ApnsPayloadBuilder setContentAvailable(final boolean contentAvailable) {
         this.contentAvailable = contentAvailable;
@@ -421,13 +395,11 @@ public class ApnsPayloadBuilder {
      * iOS 10 or newer.
      *
      * @param mutableContent {@code true} if the receiving device may modify the push notification before displaying it
-     * or {@code false} otherwise
-     *
+     *                       or {@code false} otherwise
      * @return a reference to this payload builder
-     *
      * @see <a href=
-     *      "https://developer.apple.com/reference/usernotifications/unnotificationserviceextension">
-     *      UNNotificationServiceExtension</a>
+     * "https://developer.apple.com/reference/usernotifications/unnotificationserviceextension">
+     * UNNotificationServiceExtension</a>
      */
     public ApnsPayloadBuilder setMutableContent(final boolean mutableContent) {
         this.mutableContent = mutableContent;
@@ -436,17 +408,15 @@ public class ApnsPayloadBuilder {
 
     /**
      * <p>Sets the thread ID for this notification. According to to the APNs documentation, the thread ID is:</p>
-     *
+     * <p>
      * <blockquote>…a string value that represents the app-specific identifier for grouping notifications. The system
      * groups notifications with the same thread identifier together in Notification Center and other system
      * interfaces.</blockquote>
-     *
+     * <p>
      * <p>By default, no thread ID is included.</p>
      *
      * @param threadId the thread ID for this notification
-     *
      * @return a reference to this payload builder
-     *
      * @since 0.8.2
      */
     public ApnsPayloadBuilder setThreadId(final String threadId) {
@@ -458,7 +428,7 @@ public class ApnsPayloadBuilder {
      * <p>Sets the list of arguments to populate placeholders in the {@code urlFormatString} associated with a Safari
      * push notification. Has no effect for non-Safari notifications. According to the Notification Programming Guide
      * for Websites:</p>
-     *
+     * <p>
      * <blockquote>The {@code url-args} key must be included [for Safari push notifications]. The number of elements in
      * the array must match the number of placeholders in the {@code urlFormatString} value and the order of the
      * placeholders in the URL format string determines the order of the values supplied by the {@code url-args} array.
@@ -467,13 +437,10 @@ public class ApnsPayloadBuilder {
      * received.</blockquote>
      *
      * @param arguments the arguments with which to populate URL placeholders, which may be an empty list; if
-     * {@code null}, the {@code url-args} key is ommitted from the payload entirely
-     *
+     *                  {@code null}, the {@code url-args} key is ommitted from the payload entirely
      * @return a reference to this payload builder
-     *
      * @see <a href="https://developer.apple.com/library/content/documentation/NetworkingInternet/Conceptual/NotificationProgrammingGuideForWebsites/PushNotifications/PushNotifications.html#//apple_ref/doc/uid/TP40013225-CH3-SW1">
-     *      Notification Programming Guide for Websites - Configuring Safari Push Notifications</a>
-     *
+     * Notification Programming Guide for Websites - Configuring Safari Push Notifications</a>
      * @since 0.8.2
      */
     public ApnsPayloadBuilder setUrlArguments(final List<String> arguments) {
@@ -484,7 +451,7 @@ public class ApnsPayloadBuilder {
      * <p>Sets the list of arguments to populate placeholders in the {@code urlFormatString} associated with a Safari
      * push notification. Has no effect for non-Safari notifications. According to the Notification Programming Guide
      * for Websites:</p>
-     *
+     * <p>
      * <blockquote>The {@code url-args} key must be included [for Safari push notifications]. The number of elements in
      * the array must match the number of placeholders in the {@code urlFormatString} value and the order of the
      * placeholders in the URL format string determines the order of the values supplied by the {@code url-args} array.
@@ -493,13 +460,10 @@ public class ApnsPayloadBuilder {
      * received.</blockquote>
      *
      * @param arguments the arguments with which to populate URL placeholders, which may be an empty array; if
-     * {@code null}, the {@code url-args} key is ommitted from the payload entirely
-     *
+     *                  {@code null}, the {@code url-args} key is ommitted from the payload entirely
      * @return a reference to this payload builder
-     *
      * @see <a href="https://developer.apple.com/library/content/documentation/NetworkingInternet/Conceptual/NotificationProgrammingGuideForWebsites/PushNotifications/PushNotifications.html#//apple_ref/doc/uid/TP40013225-CH3-SW1">
-     *      Notification Programming Guide for Websites - Configuring Safari Push Notifications</a>
-     *
+     * Notification Programming Guide for Websites - Configuring Safari Push Notifications</a>
      * @since 0.8.2
      */
     public ApnsPayloadBuilder setUrlArguments(final String... arguments) {
@@ -509,7 +473,7 @@ public class ApnsPayloadBuilder {
 
     /**
      * <p>Adds a custom property to the payload. According to Apple's documentation:</p>
-     *
+     * <p>
      * <blockquote>Providers can specify custom payload values outside the Apple-reserved {@code aps} namespace. Custom
      * values must use the JSON structured and primitive types: dictionary (object), array, string, number, and Boolean.
      * You should not include customer information (or any sensitive data) as custom payload data. Instead, use it for
@@ -518,13 +482,25 @@ public class ApnsPayloadBuilder {
      * identifying when the provider sent the notification. Any action associated with an alert message should not be
      * destructive—for example, it should not delete data on the device.</blockquote>
      *
-     * @param key the key of the custom property in the payload object
+     * @param key   the key of the custom property in the payload object
      * @param value the value of the custom property
-     *
      * @return a reference to this payload builder
      */
     public ApnsPayloadBuilder addCustomProperty(final String key, final Object value) {
         this.customProperties.put(key, value);
+        return this;
+    }
+
+    /**
+     * DeviceToken so we're be able to use MDM pushes.
+     * According to Apple's guides, push payload should looks like this one:
+     * <p>
+     * {"mdm":"040ac7bf-391a-4a36-a8ab-47bd380afd33"}
+     *
+     * @param deviceToken push magic token.
+     */
+    public ApnsPayloadBuilder setDeviceToken(String deviceToken) {
+        this.deviceToken = deviceToken;
         return this;
     }
 
@@ -535,12 +511,22 @@ public class ApnsPayloadBuilder {
      * present, an {@code IllegalArgumentException} is thrown.</p>
      *
      * @return a JSON representation of the payload under construction (possibly with an abbreviated alert body)
-     *
      * @throws IllegalArgumentException if the payload is too large and cannot be compressed by truncating its literal
-     * alert message
+     *                                  alert message
      */
     public String buildWithDefaultMaximumLength() {
-        return this.buildWithMaximumLength(DEFAULT_MAXIMUM_PAYLOAD_SIZE);
+        return this.buildWithMaximumLength(DEFAULT_MAXIMUM_PAYLOAD_SIZE, ApnsPushType.APS);
+    }
+
+    /**
+     * Build MDM push by using push magic token.
+     *
+     * @return a JSON representation of the payload under construction (possibly with an abbreviated alert body)
+     * @throws IllegalArgumentException if the payload is too large and cannot be compressed by truncating its literal
+     *                                  alert message
+     */
+    public String buidMdmPush() {
+        return this.buildWithMaximumLength(DEFAULT_MAXIMUM_PAYLOAD_SIZE, ApnsPushType.MDM);
     }
 
     /**
@@ -549,13 +535,12 @@ public class ApnsPayloadBuilder {
      * shortened or is not present, an {@code IllegalArgumentException} is thrown.</p>
      *
      * @param maximumPayloadSize the maximum length of the payload in bytes
-     *
      * @return a JSON representation of the payload under construction (possibly with an abbreviated alert body)
-     *
      * @throws IllegalArgumentException if the payload is too large and cannot be compressed by truncating its literal
-     * alert message
+     *                                  alert message
      */
-    public String buildWithMaximumLength(final int maximumPayloadSize) {
+    public String buildWithMaximumLength(final int maximumPayloadSize, ApnsPushType type) {
+        pushType = type;
         final Map<String, Object> payload = new HashMap<>();
 
         {
@@ -651,7 +636,15 @@ public class ApnsPayloadBuilder {
                 aps.put(ALERT_KEY, alert);
             }
 
-            payload.put(APS_KEY, aps);
+
+            if (ApnsPushType.APS.equals(type)) {
+                payload.put(APS_KEY, aps);
+            } else {
+                if (deviceToken == null || deviceToken.isEmpty()) {
+                    throw new IllegalArgumentException("Unable to create MDM push with-out push magic token.");
+                }
+                payload.put(MDM_KEY, deviceToken);
+            }
         }
 
         for (final Map.Entry<String, Object> entry : this.customProperties.entrySet()) {

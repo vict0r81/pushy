@@ -227,7 +227,7 @@ class ApnsClientHandler extends Http2ConnectionHandler implements Http2FrameList
             headers.addInt(APNS_PRIORITY_HEADER, pushNotification.getPriority().getCode());
         }
 
-        if (pushNotification.getTopic() != null) {
+        if (pushNotification.getTopic() != null && !pushNotification.getTopic().isEmpty()) {
             headers.add(APNS_TOPIC_HEADER, pushNotification.getTopic());
         }
 

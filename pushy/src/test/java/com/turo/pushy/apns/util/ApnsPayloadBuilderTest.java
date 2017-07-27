@@ -22,9 +22,11 @@
 
 package com.turo.pushy.apns.util;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNull;
-import static org.junit.Assert.assertTrue;
+import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
+import com.google.gson.reflect.TypeToken;
+import org.junit.Before;
+import org.junit.Test;
 
 import java.lang.reflect.Type;
 import java.nio.charset.CharsetEncoder;
@@ -33,19 +35,15 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
-import org.junit.Before;
-import org.junit.Test;
-
-import com.google.gson.Gson;
-import com.google.gson.GsonBuilder;
-import com.google.gson.reflect.TypeToken;
+import static org.junit.Assert.*;
 
 public class ApnsPayloadBuilderTest {
 
     private ApnsPayloadBuilder builder;
     private Gson gson;
 
-    private static Type MAP_OF_STRING_TO_OBJECT = new TypeToken<Map<String, Object>>(){}.getType();
+    private static Type MAP_OF_STRING_TO_OBJECT = new TypeToken<Map<String, Object>>() {
+    }.getType();
 
     @Before
     public void setUp() {
@@ -92,6 +90,16 @@ public class ApnsPayloadBuilderTest {
         }
     }
 
+    @Test
+    public void testBuildMdmPush() {
+        final String deviceToken = "040ac7bf-391a-4a36-a8ab-47bd380afd33";
+        this.builder.setDeviceToken(deviceToken);
+
+        Map<String, Object> mdm = this.extractApsObjectFromPayloadString(this.builder.buidMdmPush());
+        assertNotNull(mdm);
+        assertEquals(deviceToken, mdm.get("mdm"));
+    }
+
     @SuppressWarnings("unchecked")
     @Test
     public void testSetLocalizedAlertBody() {
@@ -112,7 +120,7 @@ public class ApnsPayloadBuilderTest {
         // We're happy here as long as nothing explodes
         this.builder.setLocalizedAlertMessage(alertKey, (String[]) null);
 
-        final String[] alertArgs = new String[] { "Moose", "helicopter" };
+        final String[] alertArgs = new String[]{"Moose", "helicopter"};
         this.builder.setLocalizedAlertMessage(alertKey, alertArgs);
 
         {
@@ -167,7 +175,7 @@ public class ApnsPayloadBuilderTest {
         // We're happy here as long as nothing explodes
         this.builder.setLocalizedAlertTitle(localizedAlertTitleKey, (String[]) null);
 
-        final String[] alertArgs = new String[] { "Moose", "helicopter" };
+        final String[] alertArgs = new String[]{"Moose", "helicopter"};
         this.builder.setLocalizedAlertTitle(localizedAlertTitleKey, alertArgs);
 
         {
@@ -224,7 +232,7 @@ public class ApnsPayloadBuilderTest {
         // We're happy here as long as nothing explodes
         this.builder.setLocalizedAlertSubtitle(subtitleKey, (String[]) null);
 
-        final String[] subtitleArgs = new String[] { "Moose", "helicopter" };
+        final String[] subtitleArgs = new String[]{"Moose", "helicopter"};
         this.builder.setLocalizedAlertSubtitle(subtitleKey, subtitleArgs);
 
         {
@@ -512,7 +520,7 @@ public class ApnsPayloadBuilderTest {
 
         this.builder.setAlertBody(reallyLongAlertMessage);
 
-        final String payloadString = this.builder.buildWithMaximumLength(maxLength);
+        final String payloadString = this.builder.buildWithMaximumLength(maxLength, ApnsPushType.APS);
 
         assertTrue(reallyLongAlertMessage.getBytes(StandardCharsets.UTF_8).length > maxLength);
         assertTrue(payloadString.getBytes(StandardCharsets.UTF_8).length == maxLength);
@@ -523,7 +531,7 @@ public class ApnsPayloadBuilderTest {
         final String shortAlertMessage = "This should just fit.";
 
         this.builder.setAlertBody(shortAlertMessage);
-        final Map<String, Object> aps = this.extractApsObjectFromPayloadString(this.builder.buildWithMaximumLength(Integer.MAX_VALUE));
+        final Map<String, Object> aps = this.extractApsObjectFromPayloadString(this.builder.buildWithMaximumLength(Integer.MAX_VALUE, ApnsPushType.APS));
 
         @SuppressWarnings("unchecked")
         final Map<String, Object> alert = (Map<String, Object>) aps.get("alert");
@@ -540,7 +548,7 @@ public class ApnsPayloadBuilderTest {
 
         this.builder.setLocalizedAlertMessage(reallyLongAlertKey);
 
-        final String payloadString = this.builder.buildWithMaximumLength(maxLength);
+        final String payloadString = this.builder.buildWithMaximumLength(maxLength, ApnsPushType.APS);
 
         assertTrue(payloadString.getBytes(StandardCharsets.UTF_8).length <= maxLength);
     }
@@ -575,6 +583,13 @@ public class ApnsPayloadBuilderTest {
     @SuppressWarnings("unchecked")
     private Map<String, Object> extractApsObjectFromPayloadString(final String payloadString) {
         final Map<String, Object> payload = this.gson.fromJson(payloadString, MAP_OF_STRING_TO_OBJECT);
-        return (Map<String, Object>) payload.get("aps");
+
+        if (payload.containsKey("aps"))
+            return (Map<String, Object>) payload.get("aps");
+
+        if (payload.containsKey("mdm"))
+            return payload;
+
+        throw new IllegalStateException("Unexpected payload content");
     }
 }
